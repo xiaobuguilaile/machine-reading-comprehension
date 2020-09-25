@@ -12,9 +12,8 @@ import json
 
 import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 DATA_BASE = BASE_DIR + "/data/"
-# print(DATA_BASE)
+print(DATA_BASE)
 
 
 def data_preprocess(corpus_file_name):
@@ -57,7 +56,7 @@ def get_phrases(corpus_file_name):
         for ph in neg_phrases:
             if len(ph) > 1:
                 f.write(ph + "\n")
-    #
+
     # all_phrases = pos_phrases + neu_phrases + neg_phrases
     # special_phrases = [line.strip() for line in open(DATA_BASE + "special_phrases.txt", encoding='utf-8').readlines()]
     # all_phrases = list(set(special_phrases + all_phrases))
@@ -107,15 +106,47 @@ def get_specified_phrases():
         fw.write(json.dumps(phrases_dic, ensure_ascii=False))
 
 
+def get_raw_data_from_dureader(input_file_path):
+    """ 从 dureader的json文件中提取源文本 """
+
+    corpus = [json.loads(item) for item in open(input_file_path, encoding="utf-8").readlines()]
+    raw_data = ""
+    for item in corpus:
+        for dic in item["documents"]:
+            raw_data += dic["title"]
+            raw_data += " ".join(dic["paragraphs"])
+
+    return raw_data
+
+
+def combine_dureader():
+    file_path1 = BASE_DIR + "/data/dureader_raw/raw/trainset/zhidao.train.json"
+    file_path2 = BASE_DIR + "/data/dureader_raw/raw/trainset/search.train.json"
+    file_path3 = BASE_DIR + "/data/dureader_raw/raw/testset/zhidao.test.json"
+    file_path4 = BASE_DIR + "/data/dureader_raw/raw/testset/search.test.json"
+    file_path5 = BASE_DIR + "/data/dureader_raw/raw/devset/zhidao.dev.json"
+    file_path6 = BASE_DIR + "/data/dureader_raw/raw/devset/search.dev.json"
+
+    with open(file_path1, encoding="utf-8") as f1,\
+        open(file_path2, encoding="utf-8") as f2,\
+        open(file_path3, encoding="utf-8") as f3,\
+        open(file_path4, encoding="utf-8") as f4,\
+        open(file_path5, encoding="utf-8") as f5,\
+        open(file_path6, encoding="utf-8") as f6:
+
+        raw1 = f1.read()
+        raw2 = f2.read()
+        raw3 = f3.read()
+        raw4 = f4.read()
+        raw5 = f5.read()
+        raw6 = f6.read()
+
+    with open(BASE_DIR + "/data/raw_data.txt", "w", encoding="utf-8") as fw:
+        fw.write(raw1+raw2+raw3+raw4+raw5+raw6)
+
+
 if __name__ == '__main__':
 
-    ### 更新源数据文件  ####
-    # get_specified_phrases()
-    get_phrases("combined_phrases")
-    #######################
-
-    # combine_phrases()
-
-    # get_phrases("makeup_phrases")
-    # get_phrases("skin_care_phrases")
-    # pre_process_data("all_sku2")
+    file_path = DATA_BASE + "/dureader_raw/raw/trainset/zhidao.train.json"
+    raw_data = get_raw_data_from_dureader(file_path)
+    print(raw_data)
