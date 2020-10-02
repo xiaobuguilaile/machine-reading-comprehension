@@ -11,6 +11,7 @@ from collections import Counter
 import json
 from loguru import logger
 import re
+import jieba_fast as jieba
 
 from MachineReadingComprehension.utils.timer import time_count
 from MachineReadingComprehension.utils.jieba_speed_up import chinese_word_segment
@@ -40,13 +41,14 @@ class GenerateWordFreq(object):
         logger.info(" text length is : {} ".format(len(text)))
 
         # clean_text = re.findall('[\u4e00-\u9fa5A-Za-z0-9]+', text, re.S)  # 只保留中文，字母，数字，标点
-        clean_text = re.findall('[\u4e00-\u9fa5]+', text, re.S)  # 只保留中文
-        text = "".join(clean_text)
+        # clean_text = re.findall('[\u4e00-\u9fa5]+', text, re.S)  # 只保留中文
+        # text = "".join(clean_text)
 
         # jieba_words = [word for word in self.jieba_cut(text) if word not in self.stopwords]  # jieba分词
-        jieba_words = [word for word in self.jieba_cut(text)]  # jieba分词
+        # jieba_words = [word for word in self.jieba_cut(text)]  # jieba分词
+        jieba_words = jieba.lcut(text) # jieba分词
         self.count_dict = Counter(jieba_words)  # 词频统计
-        print("count_dict", self.count_dict)
+        # print("count_dict", self.count_dict)
 
         return self.count_dict
 
@@ -64,11 +66,36 @@ if __name__ == '__main__':
     # df = df.dropna(subset=["评论内容"])  # 删除 “评论内容” 空值行
     # text = " ".join(list(df["评论内容"]))
 
-    text = open(BASE_DIR + "/data/raw_data.txt", encoding="utf-8").read()
+    # text = open(BASE_DIR + "/data/raw_data.txt", encoding="utf-8").read()
+    # clean_text = re.findall('[\u4e00-\u9fa5]+', text, re.S)  # 只保留中文
+    # text = "".join(clean_text)
+    # with open(BASE_DIR + "/data/clean_data.txt", "w", encoding="utf-8") as fw:
+    #     fw.write(text)
 
-    g = GenerateWordFreq()
-    count_dict = g.get_words_freq(text)
+    # text = open(BASE_DIR + "/data/clean_data.txt", encoding="utf-8").read()
+    # g = GenerateWordFreq()
+    # count_dict = g.get_words_freq(text)
 
-    with open(BASE_DIR + "/data/words_frequency.json", "w", encoding="utf-8") as fw:
-        fw.write(json.dumps(count_dict, ensure_ascii=False) + "\n")
+    seg_words = []
+    fr = open(BASE_DIR + "/data/clean_data.txt", encoding="utf-8")
+    content = fr.read(1028 * 32)
+    i = 0
+    while content:
+        if i % 500 == 0: print(i)
+        jieba_words = jieba.lcut(content)
+        seg_words.extend(jieba_words)
+        content = fr.read(1028 * 32)
+        i += 1
+        if i == 10000: break
+    fr.close()
+
+    count_dict = Counter(seg_words)
+    # with open(BASE_DIR + "/data/words_frequency.json", "w", encoding="utf-8") as fw:
+    #     fw.write(json.dumps(count_dict, ensure_ascii=False) + "\n")
+    # content = json.loads(open(BASE_DIR + "/data/words_frequency.json", encoding="utf-8").read())
+
+    new_dic = dict(sorted(count_dict.items(), key=lambda kv: kv[1], reverse=True))
+
+    with open(BASE_DIR + "/data/soreted_words_frequency.json", "w", encoding="utf-8") as fw:
+        fw.write(json.dumps(new_dic, ensure_ascii=False) + "\n")
 

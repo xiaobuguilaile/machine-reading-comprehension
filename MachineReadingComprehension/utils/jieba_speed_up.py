@@ -4,7 +4,7 @@
 @File       : jieba_speed_up.py
 @Author     : HW Shen
 @Date       : 2020/9/25
-@Desc       :
+@Desc       : jieba多线程切词
 '''
 
 import pandas as pd
@@ -14,7 +14,8 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import jieba_fast as jieba  # 代替原版jieba, 速度更快
 
-NUMBER_OF_PROCESSES = cpu_count()  # CPU核数
+# NUMBER_OF_PROCESSES = cpu_count()  # CPU核数
+NUMBER_OF_PROCESSES = 3  # CPU核数
 
 
 def content_cut(text):
