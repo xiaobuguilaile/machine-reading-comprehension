@@ -9,6 +9,12 @@
 
 import numpy as np
 import MachineReadingComprehension.BiDAF_tf2.data_io as pio
+import os
+import nltk
+
+BASE_DIR = ""
+
+GLOVE_FILE_PATH = "data/glove.6B.50d.txt"
 
 
 class Preprocessor:
@@ -19,13 +25,19 @@ class Preprocessor:
         self.max_length = max_length
         self.max_clen = 100  # context最大长度
         self.max_qlen = 100  # query最大长度
+        self.max_char_len=16
         self.stride = stride
         self.charset = set()
         self.build_charset()
+        self.embeddings_index = {}
+        self.embedding_matrix = []
+        self.word_list = []
+        self.load_glove(GLOVE_FILE_PATH)
+        self.build_wordset()
 
     def build_charset(self):
         for fp in self.datasets_fp:
-            self.charset |= self.dataset_info(fp)
+            self.charset |= self.dataset_char_info(fp)
 
         self.charset = sorted(list(self.charset))
         self.charset = ['[PAD]', '[CLS]', '[SEP]'] + self.charset + ['[UNK]']
@@ -33,8 +45,13 @@ class Preprocessor:
         self.ch2id = dict(zip(self.charset, idx))
         self.id2ch = dict(zip(idx, self.charset))
         print(self.ch2id, self.id2ch)
+        
+    def build_wordset(self):
+        idx = list(range(len(self.word_list)))
+        self.w2id = dict(zip(self.word_list, idx))
+        self.id2w = dict(zip(idx, self.word_list))
 
-    def dataset_info(self, inn):
+    def dataset_char_info(self, inn):
         charset = set()
         dataset = pio.load(inn)
 
@@ -56,6 +73,85 @@ class Preprocessor:
                         text = answer['text']
                         answer_start = answer['answer_start']
                         yield qid, context, question, text, answer_start
+
+    def char_encode(self, context, question):
+        q_seg_list = self.seg_text(question)
+        c_seg_list = self.seg_text(context)
+        question_encode = self.convert2id_char(max_char_len=self.max_char_len, begin=True, end=True, word_list=q_seg_list)
+        print(question_encode)
+        left_length = self.max_length - len(question_encode)
+        context_encode = self.convert2id_char(max_char_len=self.max_char_len,maxlen=left_length, end=True, word_list=c_seg_list)
+        cq_encode = question_encode + context_encode
+
+        return cq_encode
+
+    def word_encode(self, context, question):
+        q_seg_list = self.seg_text(question)
+        c_seg_list = self.seg_text(context)
+        question_encode = self.convert2id_word(begin=True, end=True, word_list=q_seg_list)
+        left_length = self.max_length - len(question_encode)
+        context_encode = self.convert2id_word(maxlen=left_length, end=True, word_list=c_seg_list)
+        cq_encode = question_encode + context_encode
+
+        assert len(cq_encode) == self.max_length
+
+        return cq_encode
+
+    def convert2id_char(self, max_char_len=None, maxlen=None, begin=False, end=False, word_list = []):
+        char_list = []
+        char_list = [[self.get_id_char('[CLS]')] + [self.get_id_char('[PAD]')] * (max_char_len-1)] * begin + char_list
+        for word in word_list:
+            ch = [ch for ch in word]
+            if max_char_len is not None:
+                ch = ch[:max_char_len]
+
+            ids = list(map(self.get_id_char, ch))
+            while len(ids) < max_char_len:
+                ids.append(self.get_id_char('[PAD]'))
+            char_list.append(np.array(ids))
+
+        if maxlen is not None:
+            char_list = char_list[:maxlen - 1 * end]
+            # char_list += [[self.get_id_char('[SEP]')]] * end
+            char_list += [[self.get_id_char('[PAD]')] * max_char_len] * (maxlen - len(char_list))
+        # else:
+        #     char_list += [[self.get_id_char('[SEP]')]] * end
+
+        return char_list
+
+    def convert2id_word(self, maxlen=None, begin=False, end=False, word_list=[]):
+        ch = [ch for ch in word_list]
+        ch = ['cls'] * begin + ch
+
+        if maxlen is not None:
+            ch = ch[:maxlen - 1 * end]
+            # ch += ['sep'] * end
+            ch += ['pad'] * (maxlen - len(ch))
+        # else:
+        #     ch += ['sep'] * end
+
+        ids = list(map(self.get_id_word, ch))
+
+        return ids
+
+    def get_id_char(self, ch):
+        return self.ch2id.get(ch, self.ch2id['[UNK]'])
+
+    def get_id_word(self, ch):
+        return self.w2id.get(ch, self.w2id['unk'])
+
+    def seg_text(self, text):
+        words = [word.lower() for word in nltk.word_tokenize(text)]
+        return words
+
+    def load_glove(self, glove_file_path):
+        with open(glove_file_path, encoding='utf-8') as fr:
+            for line in fr:
+                word, coefs = line.split(maxsplit=1)
+                coefs = np.fromstring(coefs, sep=' ')
+                self.embeddings_index[word] = coefs
+                self.word_list.append(word)
+                self.embedding_matrix.append(coefs)
 
     def encode(self, context, question):
         question_encode = self.convert2id(question, begin=True, end=True)

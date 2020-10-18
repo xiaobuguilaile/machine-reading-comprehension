@@ -19,7 +19,6 @@ import tensorflow as tf
 
 tf.get_logger().setLevel(logging.ERROR)
 from MachineReadingComprehension.BiDAF_tf2 import layers
-from MachineReadingComprehension.BiDAF_tf2.layers.char_cnn import CharCNN
 from MachineReadingComprehension.BiDAF_tf2 import preprocess
 import numpy as np
 
@@ -49,22 +48,32 @@ class BiDAF(object):
         :param num_decoders:解码器个数
         :param decoder_dropout: decoder dropout 概率大
     """
-    def __init__(self, clen, qlen, emb_size,
-                 max_features=5000,
-                 num_highway_layers=2,
-                 encoder_dropout=0,
-                 num_decoders=2,
-                 decoder_dropout=0,
+
+    def __init__(
+            self, clen, qlen, max_char_len, emb_size,
+            vocab_size,
+            embedding_matrix,
+            conv_layers=[],
+            max_features=5000,
+            num_highway_layers=2,
+            encoder_dropout=0,
+            num_decoders=2,
+            decoder_dropout=0,
     ):
 
         self.clen = clen
         self.qlen = qlen
+        self.max_char_len = max_char_len
         self.max_features = max_features
         self.emb_size = emb_size
+        self.vocab_size = vocab_size
+        self.embedding_matrix = embedding_matrix
+        self.conv_layers = conv_layers
         self.num_highway_layers = num_highway_layers
         self.encoder_dropout = encoder_dropout
         self.num_decoders = num_decoders
         self.decoder_dropout = decoder_dropout
+
 
     def build_model(self):
         """ 构建模型 """
@@ -72,21 +81,55 @@ class BiDAF(object):
         # 1 embedding 层
         # TODO：homework：使用 glove word embedding（或自己训练的 w2v） 和 char-CNN  embedding
         # Glove word embedding
-        self.glove_word_embed = get_glove_vec(BASE_DIR+"/data/glove_vectors.txt", BASE_DIR + "/data/vocab.txt")
+        cinn_c = tf.keras.layers.Input(shape=(self.clen, self.max_char_len), name='context_input_char')
+        qinn_c = tf.keras.layers.Input(shape=(self.qlen, self.max_char_len), name='question_input_char')
+        embedding_layer_char = tf.keras.layers.Embedding(self.max_features, self.emb_size,
+                                                         embeddings_initializer='uniform')
 
-        # CNN char embeddig
-        CharCNN()
+        emb_cc = embedding_layer_char(cinn_c)
+        emb_qc = embedding_layer_char(qinn_c)
 
-        embedding_layer = tf.keras.layers.Embedding(input_dim=self.max_features,
-                                                    output_dim=self.emb_size,
-                                                    embeddings_initializer='uniform',
-                                                    )
+        # embedding_layer = tf.keras.layers.Embedding(input_dim=self.max_features,
+        #                                             output_dim=self.emb_size,
+        #                                             embeddings_initializer='uniform',
+        #                                             )
+        #
+        # c_inp = tf.keras.layers.Input(shape=(self.clen,), name='context_input')  # 上下文输入层
+        # q_inp = tf.keras.layers.Input(shape=(self.qlen,), name='question_input')  # 问题输入层
+        #
+        # c_emb = embedding_layer(c_inp)  # 上下文嵌入层
+        # q_emb = embedding_layer(q_inp)  # 问题嵌入层
 
-        c_inp = tf.keras.layers.Input(shape=(self.clen,), name='context_input')  # 上下文输入层
-        q_inp = tf.keras.layers.Input(shape=(self.qlen,), name='question_input')  # 问题输入层
+        c_conv_out = []
+        filter_sizes = sum(list(np.array(self.conv_layers).T[0]))
+        assert filter_sizes == self.emb_size
+        for filters, kernel_size in self.conv_layers:
+            conv = tf.keras.layers.Conv2D(filters=filters, kernel_size=[kernel_size, self.emb_size], strides=1,
+                                          activation='relu', padding='same')(emb_cc)
+            conv = tf.reduce_max(conv, 2)
+            c_conv_out.append(conv)
+        c_conv_out = tf.keras.layers.concatenate(c_conv_out)
 
-        c_emb = embedding_layer(c_inp)  # 上下文嵌入层
-        q_emb = embedding_layer(q_inp)  # 问题嵌入层
+        q_conv_out = []
+        for filters, kernel_size in self.conv_layers:
+            conv = tf.keras.layers.Conv2D(filters=filters, kernel_size=[kernel_size, self.emb_size], strides=1,
+                                          activation='relu', padding='same')(emb_qc)
+            conv = tf.reduce_max(conv, 2)
+            q_conv_out.append(conv)
+        q_conv_out = tf.keras.layers.concatenate(q_conv_out)
+
+        cinn_w = tf.keras.layers.Input(shape=(self.clen,), name='context_input_word')
+        qinn_w = tf.keras.layers.Input(shape=(self.qlen,), name='question_input_word')
+        embedding_layer_word = tf.keras.layers.Embedding(self.vocab_size, self.emb_size,
+                                                         embeddings_initializer=tf.constant_initializer(
+                                                             self.embedding_matrix), trainable=False)
+
+        emb_cw = embedding_layer_word(cinn_w)
+        emb_qw = embedding_layer_word(qinn_w)
+        print('emb_cw', emb_cw.shape)
+        cemb = tf.concat([emb_cw, c_conv_out], axis=2)
+        qemb = tf.concat([emb_qw, q_conv_out], axis=2)
+        print('cemb', cemb.shape)
 
         for i in range(self.num_highway_layers):
 
@@ -94,8 +137,8 @@ class BiDAF(object):
             highway_layer = layers.Highway(name=f'Highway{i}')
             c_highway = tf.keras.layers.TimeDistributed(layer=highway_layer, name=f'CHighway{i}')
             q_highway = tf.keras.layers.TimeDistributed(layer=highway_layer, name=f'QHighway{i}')
-            c_emb = c_highway(c_emb)
-            q_emb = q_highway(q_emb)
+            cemb = c_highway(cemb)
+            qemb = q_highway(qemb)
 
         # 2.上下文嵌入层 context_embedding
         # 编码器 双向LSTM
@@ -108,8 +151,8 @@ class BiDAF(object):
             ), name='BiRNNEncoder'
         )
 
-        c_encode = encoder_layer(c_emb)  # 编码context
-        q_encode = encoder_layer(q_emb)  # 编码question
+        c_encode = encoder_layer(cemb)  # 编码context
+        q_encode = encoder_layer(qemb)  # 编码question
 
         # 3.注意流层 attention flow
         similarity_layer = layers.Similarity(name='SimilarityLayer')
@@ -148,7 +191,8 @@ class BiDAF(object):
         output_layer = layers.Combine(name='CombineOutputs')
         out = output_layer([span_begin_prob, span_end_prob])
 
-        inp = [c_inp, q_inp]  # 拼接context和question的input
+        # inp = [c_inp, q_inp]  # 拼接context和question的input
+        inp = [cinn_c, qinn_c, cinn_w, qinn_w]
 
         self.model = tf.keras.models.Model(inp, out)
         self.model.summary(line_length=128)
@@ -159,38 +203,6 @@ class BiDAF(object):
             loss=negative_avg_log_error,
             metrics=[accuracy]
         )
-
-
-from tqdm import tqdm
-
-
-def get_glove_vec(glove_path, voc_path):
-    """  """
-    # glove_path = os.path.join(args.glove_dir, "glove.{}.{}d.txt".format(args.glove_corpus, args.glove_vec_size))
-    # sizes = {'6B': int(4e5), '42B': int(1.9e6), '840B': int(2.2e6), '2B': int(1.2e6)}
-    # total = sizes[glove_size]
-
-    word2id = {}
-    for line in open(voc_path, encoding='utf-8').readlines():
-        word, word_id = line.split()
-        word2id[word] = word_id
-
-    glove_vec_dict = {}
-    with open(glove_path, 'r', encoding='utf-8') as f:
-        for line in tqdm(f):
-            array = line.lstrip().rstrip().split(" ")
-            word = array[0]
-            vector = list(map(float, array[1:]))
-            if word in word2id:
-                glove_vec_dict[word] = vector
-            elif word.capitalize() in word2id:
-                glove_vec_dict[word.capitalize()] = vector
-            elif word.lower() in word2id:
-                glove_vec_dict[word.lower()] = vector
-            elif word.upper() in word2id:
-                glove_vec_dict[word.upper()] = vector
-
-    return glove_vec_dict
 
 
 def negative_avg_log_error(y_true, y_pred):
