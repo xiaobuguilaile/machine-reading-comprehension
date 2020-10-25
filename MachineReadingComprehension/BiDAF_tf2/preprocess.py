@@ -11,10 +11,14 @@ import numpy as np
 import MachineReadingComprehension.BiDAF_tf2.data_io as pio
 import os
 import nltk
+from bert_serving.client import BertClient
 
 BASE_DIR = ""
 
 GLOVE_FILE_PATH = "data/glove.6B.50d.txt"
+
+# 查看服务端的端口号 5555，5556，ip为本机，时间为10000s, 为了防止一直等待
+bc = BertClient(ip='localhost', check_version=False, port=5555, port_out=5556, check_length=False, timeout=10000)
 
 
 class Preprocessor:
@@ -201,6 +205,27 @@ class Preprocessor:
 
     def get_sent_ids(self, sent, maxlen):
         return self.convert2id(sent, maxlen=maxlen, end=True)
+
+    def get_bert_data(self, ds_fp):
+
+        dataset = pio.load(ds_fp)
+        for qid, context, question, text, answer_start in self.iter_cqa(dataset):
+            # cids = self.get_sent_ids(context, self.max_clen)
+            # qids = self.get_sent_ids(question, self.max_qlen)
+            # b, e = answer_start, answer_start + len(text)
+            cids = bc.encode([context[:self.max_clen]])[0]
+            qids = bc.encode([question[:self.max_qlen]])[0]
+            b, e = answer_start, answer_start + len(text)
+            yield qid, cids, qids, b, e
+
+    def bert_feature(self, dataset_fp):
+        # 获取bert的特征值
+        cs, qs, be = [], [], []  # 初始化
+        for _, c, q, b, e in self.get_bert_data(dataset_fp):
+            cs.append(c)
+            qs.append(q)
+            be.append((b, e))
+        return map(np.array, (cs, qs, be))
 
 
 if __name__ == '__main__':

@@ -270,8 +270,11 @@ if __name__ == '__main__':
         './data/squad/dev-v1.1.json',
         './data/squad/dev-v1.1.json'
     ])
-    train_c, train_q, train_y = ds.get_dataset('./data/squad/train-v1.1.json')
-    test_c, test_q, test_y = ds.get_dataset('./data/squad/dev-v1.1.json')
+    # train_c, train_q, train_y = ds.get_dataset('./data/squad/train-v1.1.json')
+    # test_c, test_q, test_y = ds.get_dataset('./data/squad/dev-v1.1.json')
+
+    train_c, train_q, train_y = ds.bert_feature('./data/squad/bert_test.json')
+    test_c, test_q, test_y = ds.bert_feature('./data/squad/bert_test.json')
 
     print(train_c.shape, train_q.shape, train_y.shape)
     print(test_c.shape, test_q.shape, test_y.shape)
@@ -280,16 +283,16 @@ if __name__ == '__main__':
         clen=ds.max_clen,
         qlen=ds.max_qlen,
         emb_size=50,
-        max_features=len(ds.charset)
+        max_char_len=ds.max_char_len,
+        max_features=len(ds.charset),
+        vocab_size=len(ds.word_list),
+        embedding_matrix=None,
     )
     bidaf.build_model()
     bidaf.model.fit(
-        [train_c, train_q], train_y,
-        batch_size=64,
+        [train_c, train_q],
+        train_y,
+        batch_size=32,
         epochs=10,
         validation_data=([test_c, test_q], test_y)
     )
-
-if __name__ == '__main__':
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    print(BASE_DIR)
