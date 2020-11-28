@@ -136,3 +136,12 @@ Lesson/
 
 # log
 log/
+
+# model
+models/
+
+# output
+output/
+
+# results
+results/
